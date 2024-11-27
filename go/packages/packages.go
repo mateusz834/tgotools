@@ -280,6 +280,14 @@ func Load(cfg *Config, patterns ...string) ([]*Package, error) {
 		}
 	}
 
+	//TODO: better
+	for i, v := range patterns {
+		if filepath.Ext(v) == ".tgo" {
+			asGoFile := v[:len(v)-len(".tgo")] + ".go"
+			patterns[i] = asGoFile
+		}
+	}
+
 	ld := newLoader(cfg)
 	ld.Config.Overlay = overlay
 	response, external, err := defaultDriver(&ld.Config, patterns...)
