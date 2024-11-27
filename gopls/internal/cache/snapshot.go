@@ -324,6 +324,8 @@ func fileKind(fh file.Handle) file.Kind {
 	switch fext {
 	case ".go":
 		return file.Go
+	case ".tgo":
+		return file.Go
 	case ".mod":
 		return file.Mod
 	case ".sum":
@@ -1712,9 +1714,10 @@ func (s *Snapshot) clone(ctx, bgCtx context.Context, changed StateChange, done f
 		// because the file type that matters is not what the *client* tells us,
 		// but what the Go command sees.
 		var invalidateMetadata, pkgFileChanged, importDeleted bool
-		if strings.HasSuffix(uri.Path(), ".go") {
+		if strings.HasSuffix(uri.Path(), ".go") || strings.HasSuffix(uri.Path(), ".tgo") {
 			invalidateMetadata, pkgFileChanged, importDeleted = metadataChanges(ctx, s, oldFH, newFH)
 		}
+
 		if invalidateMetadata {
 			// If this is a metadata-affecting change, perhaps a reload will succeed.
 			result.unloadableFiles.Remove(uri)

@@ -54,6 +54,8 @@ func KindForLang(langID protocol.LanguageKind) Kind {
 	switch langID {
 	case "go":
 		return Go
+	case "tgo":
+		return Go
 	case "go.mod":
 		return Mod
 	case "go.sum":

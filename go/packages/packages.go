@@ -17,6 +17,7 @@ import (
 	"go/token"
 	"go/types"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -262,10 +263,81 @@ type Config struct {
 // proceeding with further analysis. The [PrintErrors] function is
 // provided for convenient display of all errors.
 func Load(cfg *Config, patterns ...string) ([]*Package, error) {
+	n := time.Now()
+	defer func() {
+		fmt.Fprintf(os.Stderr, "%v\n", time.Since(n))
+	}()
+
+	overlay := maps.Clone(cfg.Overlay)
+	addedGoFiles := make(map[string]struct{})
+
+	for path, content := range overlay {
+		if filepath.Ext(path) == ".tgo" {
+			asGoFile := path[:len(path)-len(".tgo")] + ".go"
+			addedGoFiles[asGoFile] = struct{}{}
+			overlay[asGoFile] = content
+			delete(overlay, path)
+		}
+	}
+
 	ld := newLoader(cfg)
+	ld.Config.Overlay = overlay
 	response, external, err := defaultDriver(&ld.Config, patterns...)
 	if err != nil {
 		return nil, err
+	}
+
+	added := false
+	for _, pkg := range response.Packages {
+		dir, err := os.Open(pkg.Dir)
+		if err != nil {
+			return nil, err
+		}
+		files, err := dir.Readdirnames(-1)
+		if err != nil {
+			return nil, err
+		}
+		for _, v := range files {
+			if filepath.Ext(v) == ".tgo" {
+				asGoFile := filepath.Join(pkg.Dir, v[:len(v)-len(".tgo")]+".go")
+				if _, ok := overlay[asGoFile]; ok {
+					continue
+				}
+				c, err := os.ReadFile(v)
+				if err != nil {
+					return nil, err
+				}
+				overlay[asGoFile] = c
+				addedGoFiles[asGoFile] = struct{}{}
+				added = true
+			}
+		}
+	}
+
+	if added {
+		ld = newLoader(cfg)
+		ld.Config.Overlay = overlay
+		response, external, err = defaultDriver(&ld.Config, patterns...)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	removeFakeGoFiles := func(files *[]string) {
+		n := make([]string, 0)
+		for _, v := range *files {
+			if _, ok := addedGoFiles[v]; ok {
+				n = append(n, v[:len(v)-len(".go")]+".tgo")
+				continue
+			}
+			n = append(n, v)
+		}
+		*files = n
+	}
+
+	for _, pkg := range response.Packages {
+		removeFakeGoFiles(&pkg.GoFiles)
+		removeFakeGoFiles(&pkg.CompiledGoFiles)
 	}
 
 	ld.sizes = types.SizesFor(response.Compiler, response.Arch)
