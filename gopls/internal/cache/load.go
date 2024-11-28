@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"go/types"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -45,7 +44,6 @@ var errNoPackages = errors.New("no packages returned")
 //
 // If scopes contains a file scope there must be exactly one scope.
 func (s *Snapshot) load(ctx context.Context, allowNetwork AllowNetwork, scopes ...loadScope) (err error) {
-	fmt.Fprintf(os.Stderr, "scopes: %v\n", scopes)
 	if ctx.Err() != nil {
 		// Check context cancellation before incrementing id below: a load on a
 		// cancelled context should be a no-op.
@@ -89,7 +87,7 @@ func (s *Snapshot) load(ctx context.Context, allowNetwork AllowNetwork, scopes .
 			}
 			if isStandaloneFile(contents, s.Options().StandaloneTags) {
 				standalone = true
-				query = append(query, uri.Path())
+				query = append(query, uri.Path()) // TODO: no file= prefix?
 			} else {
 				query = append(query, fmt.Sprintf("file=%s", uri.Path()))
 			}

@@ -263,16 +263,13 @@ type Config struct {
 // proceeding with further analysis. The [PrintErrors] function is
 // provided for convenient display of all errors.
 func Load(cfg *Config, patterns ...string) ([]*Package, error) {
-	n := time.Now()
-	defer func() {
-		fmt.Fprintf(os.Stderr, "%v\n", time.Since(n))
-	}()
-
 	overlay := maps.Clone(cfg.Overlay)
 	addedGoFiles := make(map[string]struct{})
 
+	// Rewrite overlay files from ".tgo" to ".go"
 	for path, content := range overlay {
 		if filepath.Ext(path) == ".tgo" {
+			// TODO: we are not transpiling, is that an issue?
 			asGoFile := path[:len(path)-len(".tgo")] + ".go"
 			addedGoFiles[asGoFile] = struct{}{}
 			overlay[asGoFile] = content
@@ -280,11 +277,22 @@ func Load(cfg *Config, patterns ...string) ([]*Package, error) {
 		}
 	}
 
-	//TODO: better
-	for i, v := range patterns {
-		if filepath.Ext(v) == ".tgo" {
-			asGoFile := v[:len(v)-len(".tgo")] + ".go"
-			patterns[i] = asGoFile
+	// Rewrite "file=/path/to/file.tgo" patterns to to ".go" files.
+	for i, pattern := range patterns {
+		query, filePath, ok := strings.Cut(pattern, "=")
+		if ok && query == "file" && filepath.Ext(filePath) == ".tgo" {
+			patterns[i] = pattern[:len(pattern)-len(".tgo")] + ".go"
+
+			// Read the file from the filesystem, if not already present in the overlay.
+			asGoFile := patterns[i][len("file="):]
+			if _, ok := overlay[asGoFile]; !ok {
+				c, err := os.ReadFile(asGoFile)
+				if err != nil {
+					return nil, err
+				}
+				addedGoFiles[asGoFile] = struct{}{}
+				overlay[asGoFile] = c
+			}
 		}
 	}
 
@@ -295,34 +303,38 @@ func Load(cfg *Config, patterns ...string) ([]*Package, error) {
 		return nil, err
 	}
 
-	added := false
-	for _, pkg := range response.Packages {
-		dir, err := os.Open(pkg.Dir)
-		if err != nil {
-			return nil, err
-		}
-		files, err := dir.Readdirnames(-1)
-		if err != nil {
-			return nil, err
-		}
-		for _, v := range files {
-			if filepath.Ext(v) == ".tgo" {
-				asGoFile := filepath.Join(pkg.Dir, v[:len(v)-len(".tgo")]+".go")
-				if _, ok := overlay[asGoFile]; ok {
-					continue
+	for {
+		added := false
+		for _, pkg := range response.Packages {
+			dir, err := os.Open(pkg.Dir)
+			if err != nil {
+				return nil, err
+			}
+			files, err := dir.Readdirnames(-1)
+			if err != nil {
+				return nil, err
+			}
+			for _, v := range files {
+				if filepath.Ext(v) == ".tgo" {
+					asGoFile := filepath.Join(pkg.Dir, v[:len(v)-len(".tgo")]+".go")
+					if _, ok := overlay[asGoFile]; ok {
+						continue
+					}
+					c, err := os.ReadFile(v)
+					if err != nil {
+						return nil, err
+					}
+					overlay[asGoFile] = c
+					addedGoFiles[asGoFile] = struct{}{}
+					added = true
 				}
-				c, err := os.ReadFile(v)
-				if err != nil {
-					return nil, err
-				}
-				overlay[asGoFile] = c
-				addedGoFiles[asGoFile] = struct{}{}
-				added = true
 			}
 		}
-	}
 
-	if added {
+		if !added {
+			break
+		}
+
 		ld = newLoader(cfg)
 		ld.Config.Overlay = overlay
 		response, external, err = defaultDriver(&ld.Config, patterns...)
@@ -331,21 +343,17 @@ func Load(cfg *Config, patterns ...string) ([]*Package, error) {
 		}
 	}
 
-	removeFakeGoFiles := func(files *[]string) {
-		n := make([]string, 0)
-		for _, v := range *files {
+	removeFakeGoFiles := func(files []string) {
+		for i, v := range files {
 			if _, ok := addedGoFiles[v]; ok {
-				n = append(n, v[:len(v)-len(".go")]+".tgo")
-				continue
+				files[i] = v[:len(v)-len(".go")] + ".tgo"
 			}
-			n = append(n, v)
 		}
-		*files = n
 	}
 
 	for _, pkg := range response.Packages {
-		removeFakeGoFiles(&pkg.GoFiles)
-		removeFakeGoFiles(&pkg.CompiledGoFiles)
+		removeFakeGoFiles(pkg.GoFiles)
+		removeFakeGoFiles(pkg.CompiledGoFiles)
 	}
 
 	ld.sizes = types.SizesFor(response.Compiler, response.Arch)
