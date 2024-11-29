@@ -374,8 +374,7 @@ func Load(cfg *Config, patterns ...string) ([]*Package, error) {
 	}
 
 	rewritePos := func(pos *string) {
-		fileName, after, ok := strings.Cut(*pos, ":")
-		if ok {
+		if fileName, after, ok := strings.Cut(*pos, ":"); ok {
 			if _, ok := addedGoFiles[fileName]; ok {
 				*pos = fileName[:len(fileName)-len(".go")] + ".tgo" + ":" + after
 			}
