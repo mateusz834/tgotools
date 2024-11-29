@@ -235,6 +235,18 @@ type Config struct {
 	modFlag string
 }
 
+func tgoToGo(c []byte) []byte {
+	f, _ := parser.ParseFile(token.NewFileSet(), "", c, parser.SkipObjectResolution|parser.ImportsOnly)
+	if len(f.Decls) != 0 {
+		lastImportSpec := f.Decls[len(f.Decls)-1]
+		return c[:lastImportSpec.End()]
+	} else if f.Name != nil {
+		return c[:f.Name.End()]
+	} else {
+		return c
+	}
+}
+
 // Load loads and returns the Go packages named by the given patterns.
 //
 // The cfg parameter specifies loading options; nil behaves the same as an empty [Config].
@@ -266,13 +278,16 @@ func Load(cfg *Config, patterns ...string) ([]*Package, error) {
 	overlay := maps.Clone(cfg.Overlay)
 	addedGoFiles := make(map[string]struct{})
 
+	if overlay == nil {
+		overlay = make(map[string][]byte)
+	}
+
 	// Rewrite overlay files from ".tgo" to ".go"
 	for path, content := range overlay {
 		if filepath.Ext(path) == ".tgo" {
-			// TODO: we are not transpiling, is that an issue?
 			asGoFile := path[:len(path)-len(".tgo")] + ".go"
 			addedGoFiles[asGoFile] = struct{}{}
-			overlay[asGoFile] = content
+			overlay[asGoFile] = tgoToGo(content)
 			delete(overlay, path)
 		}
 	}
@@ -286,12 +301,12 @@ func Load(cfg *Config, patterns ...string) ([]*Package, error) {
 			// Read the file from the filesystem, if not already present in the overlay.
 			asGoFile := patterns[i][len("file="):]
 			if _, ok := overlay[asGoFile]; !ok {
-				c, err := os.ReadFile(asGoFile)
+				content, err := os.ReadFile(asGoFile)
 				if err != nil {
 					return nil, err
 				}
 				addedGoFiles[asGoFile] = struct{}{}
-				overlay[asGoFile] = c
+				overlay[asGoFile] = tgoToGo(content)
 			}
 		}
 	}
@@ -306,6 +321,9 @@ func Load(cfg *Config, patterns ...string) ([]*Package, error) {
 	for {
 		added := false
 		for _, pkg := range response.Packages {
+			if pkg.Dir == "" {
+				continue
+			}
 			dir, err := os.Open(pkg.Dir)
 			if err != nil {
 				return nil, err
@@ -314,17 +332,21 @@ func Load(cfg *Config, patterns ...string) ([]*Package, error) {
 			if err != nil {
 				return nil, err
 			}
-			for _, v := range files {
-				if filepath.Ext(v) == ".tgo" {
-					asGoFile := filepath.Join(pkg.Dir, v[:len(v)-len(".tgo")]+".go")
+			for _, tgoFile := range files {
+				if filepath.Ext(tgoFile) == ".tgo" {
+					asGoFile := filepath.Join(pkg.Dir, tgoFile[:len(tgoFile)-len(".tgo")]+".go")
 					if _, ok := overlay[asGoFile]; ok {
 						continue
 					}
-					c, err := os.ReadFile(v)
+					tgoFileContents, err := os.ReadFile(tgoFile)
 					if err != nil {
 						return nil, err
 					}
-					overlay[asGoFile] = c
+
+					// TODO: if .go file has the same imports as .tgo, we don't need to rerun.
+					// (We need to preserve also the same line and col numbers).
+
+					overlay[asGoFile] = tgoToGo(tgoFileContents)
 					addedGoFiles[asGoFile] = struct{}{}
 					added = true
 				}

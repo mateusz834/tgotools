@@ -402,6 +402,9 @@ func (state *golistState) createDriverResponse(words ...string) (*DriverResponse
 			return nil, fmt.Errorf("JSON decoding failed: %v", err)
 		}
 
+		c, _ := json.MarshalIndent(p, "", "   ")
+		fmt.Printf("%s\n", c)
+
 		if p.ImportPath == "" {
 			// The documentation for go list says that “[e]rroneous packages will have
 			// a non-empty ImportPath”. If for some reason it comes back empty, we
