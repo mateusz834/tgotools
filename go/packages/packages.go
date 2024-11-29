@@ -365,7 +365,7 @@ func Load(cfg *Config, patterns ...string) ([]*Package, error) {
 		}
 	}
 
-	removeFakeGoFiles := func(files []string) {
+	rewriteFiles := func(files []string) {
 		for i, v := range files {
 			if _, ok := addedGoFiles[v]; ok {
 				files[i] = v[:len(v)-len(".go")] + ".tgo"
@@ -388,8 +388,8 @@ func Load(cfg *Config, patterns ...string) ([]*Package, error) {
 		for i := range pkg.depsErrors {
 			rewritePos(&pkg.depsErrors[i].Pos)
 		}
-		removeFakeGoFiles(pkg.GoFiles)
-		removeFakeGoFiles(pkg.CompiledGoFiles)
+		rewriteFiles(pkg.GoFiles)
+		rewriteFiles(pkg.CompiledGoFiles)
 	}
 
 	ld.sizes = types.SizesFor(response.Compiler, response.Arch)
