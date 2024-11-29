@@ -373,7 +373,22 @@ func Load(cfg *Config, patterns ...string) ([]*Package, error) {
 		}
 	}
 
+	rewritePos := func(pos *string) {
+		fileName, after, ok := strings.Cut(*pos, ":")
+		if ok {
+			if _, ok := addedGoFiles[fileName]; ok {
+				*pos = fileName[:len(fileName)-len(".go")] + ".tgo" + ":" + after
+			}
+		}
+	}
+
 	for _, pkg := range response.Packages {
+		for i := range pkg.Errors {
+			rewritePos(&pkg.Errors[i].Pos)
+		}
+		for i := range pkg.depsErrors {
+			rewritePos(&pkg.depsErrors[i].Pos)
+		}
 		removeFakeGoFiles(pkg.GoFiles)
 		removeFakeGoFiles(pkg.CompiledGoFiles)
 	}
