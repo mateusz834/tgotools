@@ -353,8 +353,6 @@ func Load(cfg *Config, patterns ...string) ([]*Package, error) {
 			}
 		}
 
-		// TODO: we might get an Error with KindLoad because of tgoToGo and missing global decls
-
 		if !added {
 			break
 		}
